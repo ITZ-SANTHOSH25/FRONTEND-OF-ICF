@@ -61,7 +61,7 @@
      verification records are bundled in this frontend.
      ============================================================ */
   const KEY = 'lifelink_state_v4';
-  const API_BASE = 'https://backend-of-icf.onrender.com/api';
+  const API_BASE = 'https://backend-of-icf.onrender.com';
 
   const defaultState = () => ({
     role: null, page: null,
@@ -410,13 +410,13 @@
     const active = v.filter(c=>c.status==='active'||c.status==='approved');
     const completed = v.filter(c=>c.status==='completed');
     const recent = [...v].sort((a,b)=> new Date(b.submittedDate)-new Date(a.submittedDate)).slice(0,3);
-    const myTotal = state.donor.donations.reduce((s,d)=>s+d.amount,0);
+    const myTotal = state.donor.donations.filter(d=>d.status==='Verified').reduce((s,d)=>s+d.amount,0);
     return `
     <div class="stat-grid">
       <div class="stat accent"><div class="k">Total Verified Cases</div><div class="v">${v.length}</div><div class="d">Cleared by health authority</div></div>
       <div class="stat"><div class="k">Total Amount Raised</div><div class="v">${money(totalRaised)}</div><div class="d">Across all verified cases</div></div>
       <div class="stat"><div class="k">Active Campaigns</div><div class="v">${active.length}</div><div class="d">Currently accepting support</div></div>
-      <div class="stat"><div class="k">Your Total Donations</div><div class="v">${money(myTotal)}</div><div class="d">${state.donor.donations.length} contributions</div></div>
+      <div class="stat"><div class="k">Your Total Donations</div><div class="v">${money(myTotal)}</div><div class="d">${state.donor.donations.filter(d=>d.status==='Verified').length} verified contributions</div></div>
     </div>
 
     <div class="two-col">
@@ -482,23 +482,24 @@
 
   function donorDonations(){
     const d = state.donor.donations;
-    const active = d.filter(x=>x.status==='Active');
-    const done = d.filter(x=>x.status==='Completed');
-    const row = x => `<div class="list-row">
+    const verified = d.filter(x=>x.status==='Verified');
+    const pending = d.filter(x=>x.status==='Pending Verification');
+    const rejected = d.filter(x=>x.status==='Rejected');
+    const row = x => {
+      const cls = x.status==='Verified' ? 'completed' : x.status==='Rejected' ? 'declined' : 'pending';
+      return `<div class="list-row">
         <span class="case-avatar" style="width:40px;height:40px;border-radius:12px;font-size:13px">${initials(x.patient)}</span>
-        <div class="lr-main"><b>${esc(x.patient)}</b><span>${esc(x.caseId)} · ${x.date}</span></div>
-        <div style="text-align:right"><b class="mono">${money(x.amount)}</b><div><span class="badge ${x.status==='Active'?'active':'completed'}">${x.status}</span></div></div>
+        <div class="lr-main"><b>${esc(x.patient)}</b><span>${esc(x.caseId)} · ${esc(x.date)} · Ref: ${esc(x.paymentRef||'—')}</span></div>
+        <div style="text-align:right"><b class="mono">${money(x.amount)}</b><div><span class="badge ${cls}">${esc(x.status||'Pending Verification')}</span></div></div>
       </div>`;
+    };
     return `
     <div class="stat-grid">
-      <div class="stat accent"><div class="k">Total Donated</div><div class="v">${money(d.reduce((s,x)=>s+x.amount,0))}</div></div>
-      <div class="stat"><div class="k">Active Donations</div><div class="v">${active.length}</div></div>
-      <div class="stat"><div class="k">Completed Donations</div><div class="v">${done.length}</div></div>
+      <div class="stat accent"><div class="k">Verified Donations</div><div class="v">${money(verified.reduce((s,x)=>s+x.amount,0))}</div></div>
+      <div class="stat"><div class="k">Pending Verification</div><div class="v">${pending.length}</div></div>
+      <div class="stat"><div class="k">Rejected Submissions</div><div class="v">${rejected.length}</div></div>
     </div>
-    <div class="two-col">
-      <div class="panel-card"><div class="panel-head"><h3>Donation History</h3></div><div class="panel-body">${d.map(row).join('') || emptyBox('No donations yet')}</div></div>
-      <div class="panel-card"><div class="panel-head"><h3>Payment History</h3></div><div class="panel-body">${d.map(x=>`<div class="list-row"><div class="lr-main"><b>${esc(x.id)}</b><span>${x.date} · ${esc(x.caseId)}</span></div><span class="badge completed">Paid</span></div>`).join('') || emptyBox('No payments yet')}</div></div>
-    </div>`;
+    <div class="panel-card"><div class="panel-head"><h3>Donation &amp; Payment History</h3></div><div class="panel-body">${d.map(row).join('') || emptyBox('No donations submitted yet')}</div></div>`;
   }
 
   function donorSaved(){
@@ -508,7 +509,7 @@
 
   function donorProfile(){
     const d = state.donor;
-    const total = d.donations.reduce((s,x)=>s+x.amount,0);
+    const total = d.donations.filter(x=>x.status==='Verified').reduce((s,x)=>s+x.amount,0);
     const cases = new Set(d.donations.map(x=>x.caseId)).size;
     return `
     <div class="panel-card"><div class="panel-body">
@@ -615,12 +616,12 @@
       ${!mine.length ? emptyBox('No cases yet — register your first treatment case') : ''}`;
   }
 
-  /* ---------- 3-STAGE REGISTER WIZARD ---------- */
+  /* ---------- 4-STAGE REGISTER WIZARD ---------- */
   function startWizard(){
     state.wizard = { step:1, data:{
       patientName:'', age:'', diagnosis:'', treatment:'', estimatedCost:'', durationDays:'', emergency:'Medium',
       hospitalName: state.hospital.name, hospitalId: state.hospital.id, hospitalAddress:'', hospitalContact:'', hospitalEmail:'',
-      doctorName: state.hospital.doctor, doctorRegNo:''
+      doctorName: state.hospital.doctor, doctorRegNo:'', paymentUpiId:'', paymentQrData:'', paymentQrName:''
     }, docs:[] };
     state.page = 'register';
     render();
@@ -637,12 +638,13 @@
 
   function wizardView(){
     const w = state.wizard;
-    const steps = ['Treatment & Hospital Details','Medical Documents','Review & Submit'];
+    const steps = ['Treatment & Hospital Details','Medical Documents','Payment Details','Review & Submit'];
     const stepBar = steps.map((s,i)=>`<div class="wstep ${w.step===i+1?'active':''} ${w.step>i+1?'done':''}"><span class="n">${w.step>i+1?'✓':i+1}</span><span class="t">${s}</span></div>`).join('');
     let body = '';
     if (w.step===1) body = wizardStep1(w.data);
     if (w.step===2) body = wizardStep2(w.docs);
-    if (w.step===3) body = wizardStep3(w);
+    if (w.step===3) body = wizardStepPayment(w.data);
+    if (w.step===4) body = wizardStep3(w);
     return `<div class="wizard-steps">${stepBar}</div>
       <div class="panel-card"><div class="panel-body">${body}</div></div>`;
   }
@@ -698,6 +700,22 @@
     </div>`;
   }
 
+  function wizardStepPayment(d){
+    return `
+    <div class="section-label">Hospital Payment Details</div>
+    <div class="notice info" style="margin-bottom:16px"><span>Donations will be sent directly to the hospital's UPI account. Enter only a verified hospital-owned UPI ID and upload its genuine QR code. This does not charge a platform fee.</span></div>
+    <div class="form-grid">
+      <div class="fld full"><label>Hospital UPI ID</label><input data-w="paymentUpiId" value="${esc(d.paymentUpiId)}" placeholder="hospitalname@bank" autocomplete="off" /></div>
+      <div class="fld full"><label>Upload UPI QR Code (PNG/JPG/WebP, max 700 KB)</label><input id="paymentQrFile" type="file" accept="image/png,image/jpeg,image/webp" data-payment-qr /></div>
+      ${d.paymentQrData ? `<div class="fld full"><label>QR preview — ${esc(d.paymentQrName||'Uploaded QR')}</label><img src="${d.paymentQrData}" alt="Hospital UPI QR code preview" style="max-width:220px;max-height:220px;object-fit:contain;border:1px solid #ddd;border-radius:12px;padding:8px" /><button type="button" class="abtn ghost sm" data-action="remove-payment-qr">Remove QR</button></div>` : ''}
+    </div>
+    <div class="notice warn" style="margin-top:12px"><span>Use the UPI ID or QR linked to the hospital's bank account. Direct UPI payments are real transfers, but this app cannot automatically verify payment unless a payment provider/bank verification integration is configured.</span></div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="abtn ghost" data-action="wizard-back">Back</button>
+      <button class="abtn primary" data-action="wizard-next">Continue to Review</button>
+    </div>`;
+  }
+
   function wizardStep3(w){
     const d = w.data;
     const docList = w.docs.length ? w.docs.map(x=>`<div class="doc-file" style="margin-bottom:8px"><span class="nm">${esc(x.name)}</span><span class="st">${esc(x.status)}</span></div>`).join('') : '<div class="u-hint">No documents uploaded</div>';
@@ -722,6 +740,7 @@
         <div class="rr"><dt>Doctor Reg.</dt><dd>${esc(d.doctorRegNo)||'—'}</dd></div>
       </dl></div>
       <div class="review-block"><h4>Uploaded Documents</h4>${docList}</div>
+      <div class="review-block"><h4>Payment Details</h4><dl><div class="rr"><dt>Hospital UPI ID</dt><dd>${esc(d.paymentUpiId)||'Not provided'}</dd></div><div class="rr"><dt>QR Code</dt><dd>${d.paymentQrData?'Uploaded':'Not uploaded'}</dd></div></dl>${d.paymentQrData?`<img src="${d.paymentQrData}" alt="Hospital UPI QR" style="max-width:150px;max-height:150px;object-fit:contain" />`:''}</div>
     </div>
     <div class="notice info" style="margin-top:16px">${ICON.shield}<span>On submission this case will be sent to the <b>Health Authority</b> for verification. Status will become <b>Pending Health Authority Verification</b>.</span></div>
     <div class="modal-actions" style="justify-content:space-between">
@@ -755,7 +774,9 @@
           hospitalContact:d.hospitalContact,
           hospitalEmail:d.hospitalEmail,
           doctorName:d.doctorName,
-          doctorRegNo:d.doctorRegNo
+          doctorRegNo:d.doctorRegNo,
+          paymentUpiId:d.paymentUpiId,
+          paymentQrData:d.paymentQrData
         })
       });
 
@@ -822,11 +843,27 @@
   /* ============================================================
      CASE DETAILS MODAL
      ============================================================ */
-  function viewCase(id){
+  async function viewCase(id){
     const c = getCase(id); if (!c) return;
+    let paymentRows = [];
+    if (state.role==='hospital' || state.role==='authority') {
+      try {
+        const paymentRes = await api(`/donations/case/${encodeURIComponent(id)}`);
+        paymentRows = paymentRes.data.donations || [];
+      } catch (err) {
+        toast('Payment records unavailable', err.message, 'bad');
+      }
+    }
     const remaining = Math.max(0, c.estimatedCost - c.raisedAmount);
     const docs = c.documents.map(d=>`<div class="doc-file" style="margin-bottom:8px"><span class="nm">${esc(d.name)}</span><span class="st">${esc(d.status)}</span></div>`).join('') || '<div class="u-hint">No documents</div>';
-    const donors = c.donors.length ? c.donors.map(d=>`<div class="list-row"><div class="lr-main"><b>${esc(d.name)}</b><span>${d.date}</span></div><b class="mono">${money(d.amount)}</b></div>`).join('') : '<div class="u-hint">No donations yet</div>';
+    const donors = c.donors.length ? c.donors.map(d=>`<div class="list-row"><div class="lr-main"><b>${esc(d.name)}</b><span>${esc(d.date)}</span></div><b class="mono">${money(d.amount)}</b></div>`).join('') : '<div class="u-hint">No verified donations yet</div>';
+    const paymentReview = (state.role==='hospital' || state.role==='authority') ? `
+      <div class="review-block" style="margin-top:14px"><h4>UPI Payment Verification</h4>
+      ${paymentRows.length ? paymentRows.map(p=>`<div class="list-row" style="gap:12px;align-items:center">
+        <div class="lr-main"><b>${esc(p.donorName||'Donor')} · ${money(p.amount)}</b><span>${esc(p.id)} · Ref: ${esc(p.paymentRef||'—')} · ${esc(p.date)} · ${esc(p.status)}</span></div>
+        ${p.status==='Pending Verification' ? `<button class="abtn ok sm" data-action="verify-donation" data-id="${esc(p.id)}" data-case-id="${esc(id)}">Verify</button><button class="abtn danger sm" data-action="reject-donation" data-id="${esc(p.id)}" data-case-id="${esc(id)}">Reject</button>` : ''}
+      </div>`).join('') : '<div class="u-hint">No payment submissions for this case.</div>'}
+      <div class="u-hint" style="margin-top:8px">Verify the UPI transaction in the hospital bank/UPI account before approving it.</div></div>` : '';
     let foot = '';
     if (state.role==='donor' && ['approved','active','completed'].includes(c.status)) {
       foot = `<button class="abtn ghost" data-action="toggle-save" data-id="${c.id}">${state.donor.saved.includes(c.id)?'Remove from Saved':'Save Case'}</button>
@@ -864,42 +901,70 @@
         </dl></div>
         <div class="review-block"><h4>Documents</h4>${docs}</div>
       </div>
-      <div class="review-block" style="margin-top:14px"><h4>Donation Tracking</h4>${donors}</div>
+      <div class="review-block" style="margin-top:14px"><h4>Verified Donation Tracking</h4>${donors}</div>
+      ${paymentReview}
       <div class="modal-actions">${foot}<button class="abtn ghost" data-action="close-modal">Close</button></div>
     `);
   }
 
   function donateFlow(id){
     const c = getCase(id); if (!c) return;
+    const upi = String(c.paymentUpiId || '').trim();
+    const qr = c.paymentQrData || '';
+    const payReady = Boolean(upi || qr);
     openModal(`
       <h3>Support ${esc(c.patientName)}</h3>
       <div class="m-sub">${esc(c.treatment)} · ${esc(c.hospitalName)} · ${esc(c.id)}</div>
       ${progress(c)}
-      <div class="fld" style="margin-top:16px"><label>Donation Amount (₹)</label><input id="donateAmt" type="number" placeholder="e.g. 5000" /></div>
-      <div class="filter-row" style="margin-top:12px">
-        ${[1000,5000,10000,25000].map(a=>`<button class="chip" data-action="donate-quick" data-amt="${a}">₹${a.toLocaleString('en-IN')}</button>`).join('')}
-      </div>
-      <div class="notice info" style="margin-top:16px">${ICON.shield}<span>Your donation is securely recorded by the LifeLink backend.</span></div>
+      <div class="fld" style="margin-top:16px"><label>Donation Amount (₹)</label><input id="donateAmt" type="number" min="1" step="0.01" placeholder="e.g. 5000" /></div>
+      <div class="filter-row" style="margin-top:12px">${[1000,5000,10000,25000].map(a=>`<button class="chip" data-action="donate-quick" data-amt="${a}">₹${a.toLocaleString('en-IN')}</button>`).join('')}</div>
+      ${upi ? `<div class="notice info" style="margin-top:14px"><span><b>Hospital UPI ID:</b> ${esc(upi)}</span></div>` : ''}
+      ${qr ? `<div style="text-align:center;margin:12px 0"><img src="${qr}" alt="Hospital payment QR code" style="max-width:220px;max-height:220px;object-fit:contain;border:1px solid #ddd;border-radius:12px;padding:8px"/><div class="u-hint">Scan with your UPI app</div></div>` : ''}
+      ${!payReady ? `<div class="notice warn"><span>This hospital has not added payment details yet. Please contact the hospital before donating.</span></div>` : `
+        <div class="notice warn" style="margin-top:12px"><span>Pay the hospital directly. After paying, enter the UPI transaction reference/UTR below. The hospital or health authority must verify the transaction before the donation total changes.</span></div>
+        ${upi ? `<div class="modal-actions"><button class="abtn primary" data-action="open-upi-pay" data-id="${esc(c.id)}">Open UPI App</button></div>` : ''}
+        <div class="fld" style="margin-top:12px"><label>UPI Transaction Reference / UTR</label><input id="donateRef" maxlength="120" autocomplete="off" placeholder="Enter transaction ID after payment" /></div>
+      `}
       <div class="modal-actions"><button class="abtn ghost" data-action="close-modal">Cancel</button>
-        <button class="abtn primary" data-action="confirm-donate" data-id="${c.id}">Confirm Donation</button></div>
+      ${payReady ? `<button class="abtn ok" data-action="submit-donation" data-id="${esc(c.id)}">Submit for Verification</button>` : ''}</div>
     `);
   }
 
-  async function confirmDonate(id){
+  function openUpiPayment(id){
     const c = getCase(id); if (!c) return;
     const amt = Number(($('#donateAmt')||{}).value || 0);
-    if (!amt || amt < 100){ toast('Invalid amount', 'Please enter at least ₹100.', 'bad'); return; }
+    if (!Number.isFinite(amt) || amt < 1){ toast('Invalid amount','Enter the amount you want to donate.','bad'); return; }
+    const upi = String(c.paymentUpiId || '').trim();
+    if (!upi){ toast('UPI ID unavailable','Scan the hospital QR code using your UPI app.','bad'); return; }
+    const params = new URLSearchParams({pa:upi, pn:c.hospitalName || 'Hospital', am:amt.toFixed(2), cu:'INR', tn:`LifeLink ${c.id} - ${c.patientName}`});
+    // The browser may open a UPI app on supported devices. This is not proof
+    // of payment; the donor must return and submit the transaction reference.
+    window.location.href = `upi://pay?${params.toString()}`;
+  }
 
+  async function submitDonation(id){
+    const amount = Number(($('#donateAmt')||{}).value || 0);
+    const paymentRef = String(($('#donateRef')||{}).value || '').trim();
+    if (!Number.isFinite(amount) || amount <= 0) { toast('Invalid amount','Enter a valid donation amount.','bad'); return; }
+    if (paymentRef.length < 6) { toast('Transaction reference required','Enter the UPI transaction reference/UTR after completing payment.','bad'); return; }
     try {
-      await api('/donations', {
-        method:'POST',
-        body:JSON.stringify({ caseId:id, amount:amt })
-      });
+      const result = await api('/donations', { method:'POST', body:JSON.stringify({caseId:id, amount, paymentRef}) });
       closeModal();
       await loadRoleData();
-      toast('Thank you!', `${money(amt)} contributed to ${c.patientName}.`, 'ok');
+      toast('Submitted for verification', result.data.message || 'The hospital must verify the transaction. The donation total has not changed yet.', 'info');
     } catch (err) {
-      toast('Donation failed', err.message, 'bad');
+      toast('Submission failed', err.message, 'bad');
+    }
+  }
+
+  async function reviewDonation(id, caseId, action){
+    try {
+      const result = await api(`/donations/${encodeURIComponent(id)}/${action}`, { method:'POST' });
+      await loadRoleData();
+      toast(action==='verify'?'Donation verified':'Donation rejected', result.data.message || 'Payment status updated.', action==='verify'?'ok':'info');
+      if (modalEl) await viewCase(caseId);
+    } catch (err) {
+      toast('Payment review failed', err.message, 'bad');
     }
   }
 
@@ -1012,7 +1077,7 @@
     } else if (role === 'hospital') {
       if (state.page==='dashboard'){ title='Hospital Dashboard'; sub=state.hospital.name+' · '+state.hospital.id; content=hospitalDashboard(); }
       else if (state.page==='cases'){ title='My Cases'; sub='Track every case through the pipeline'; content=hospitalCases(); }
-      else if (state.page==='register'){ title='Register New Treatment Case'; sub='3-stage registration'; content=wizardView(); }
+      else if (state.page==='register'){ title='Register New Treatment Case'; sub='4-stage registration'; content=wizardView(); }
       else if (state.page==='notifications'){ title='Notifications'; sub='Recent updates'; content=notificationsView(); }
       else if (state.page==='settings'){ title='Settings'; sub='Preferences'; content=settingsView(); }
       else { state.page='dashboard'; title='Hospital Dashboard'; sub=state.hospital.name+' · '+state.hospital.id; content=hospitalDashboard(); }
@@ -1198,7 +1263,10 @@
       if (a==='view'){ viewCase(id); return; }
       if (a==='donate'){ donateFlow(id); return; }
       if (a==='donate-quick'){ const inp=$('#donateAmt'); if(inp) inp.value=act.dataset.amt; return; }
-      if (a==='confirm-donate'){ confirmDonate(id); return; }
+      if (a==='open-upi-pay'){ openUpiPayment(id); return; }
+      if (a==='submit-donation'){ submitDonation(id); return; }
+      if (a==='verify-donation'){ reviewDonation(id, act.dataset.caseId, 'verify'); return; }
+      if (a==='reject-donation'){ reviewDonation(id, act.dataset.caseId, 'reject'); return; }
       if (a==='toggle-save'){
         (async () => {
           try {
@@ -1227,6 +1295,7 @@
         return;
       }
       if (a==='clear-filters'){ state.filters={q:'',condition:'',type:'',amount:'',duration:'',location:'',sort:''}; save(); render(); return; }
+      if (a==='remove-payment-qr'){ if(state.wizard){state.wizard.data.paymentQrData='';state.wizard.data.paymentQrName='';render();} return; }
       if (a==='wizard-cancel'){ state.wizard=null; state.page='cases'; render(); return; }
       if (a==='wizard-next'){ collectWizard(); if(validateStep()){ state.wizard.step++; render(); } return; }
       if (a==='wizard-back'){ collectWizard(); state.wizard.step--; render(); return; }
@@ -1298,6 +1367,15 @@
     }
   });
   document.addEventListener('change', function(e){
+    if (e.target.matches('[data-payment-qr]')) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      if (!/^image\/(png|jpeg|webp)$/.test(file.type) || file.size > 700 * 1024) { toast('Invalid QR image','Choose a PNG, JPG or WebP image up to 700 KB.','bad'); e.target.value=''; return; }
+      const reader = new FileReader();
+      reader.onload = () => { if (state.wizard) { state.wizard.data.paymentQrData = String(reader.result); state.wizard.data.paymentQrName = file.name; render(); } };
+      reader.onerror = () => toast('QR upload failed','Could not read this image.','bad');
+      reader.readAsDataURL(file); return;
+    }
     if (e.target.dataset && e.target.dataset.filter){
       state.filters[e.target.dataset.filter] = e.target.value; save(); render(); return;
     }
@@ -1310,7 +1388,7 @@
   });
 
   function collectWizard(){
-    if (!state.wizard || state.wizard.step!==1) return;
+    if (!state.wizard || ![1,3].includes(state.wizard.step)) return;
     $$('[data-w]').forEach(inp => { state.wizard.data[inp.dataset.w] = inp.value; });
   }
   function validateStep(){
@@ -1319,6 +1397,11 @@
       const req = ['patientName','age','diagnosis','treatment','estimatedCost','durationDays'];
       const miss = req.filter(k=>!String(d[k]).trim());
       if (miss.length){ toast('Missing fields','Please complete: '+miss.join(', '),'bad'); return false; }
+    }
+    if (state.wizard.step===3){
+      const d = state.wizard.data;
+      if (d.paymentUpiId && !/^[\w.-]{2,256}@[\w.-]{2,64}$/.test(d.paymentUpiId.trim())) { toast('Invalid UPI ID','Enter a valid UPI ID such as hospital@bank.','bad'); return false; }
+      if (!d.paymentUpiId && !d.paymentQrData) { toast('Payment details required','Enter the hospital UPI ID or upload its QR code.','bad'); return false; }
     }
     if (state.wizard.step===2){
       if (!state.wizard.docs.length){ toast('Documents required','Upload at least one document.','bad'); return false; }
