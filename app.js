@@ -702,14 +702,9 @@
 
   function wizardStepPayment(d){
     return `
-    <div class="section-label">Hospital Payment Details</div>
-    <div class="notice info" style="margin-bottom:16px"><span>Donations will be sent directly to the hospital's UPI account. Enter only a verified hospital-owned UPI ID and upload its genuine QR code. This does not charge a platform fee.</span></div>
-    <div class="form-grid">
-      <div class="fld full"><label>Hospital UPI ID</label><input data-w="paymentUpiId" value="${esc(d.paymentUpiId)}" placeholder="hospitalname@bank" autocomplete="off" /></div>
-      <div class="fld full"><label>Upload UPI QR Code (PNG/JPG/WebP, max 700 KB)</label><input id="paymentQrFile" type="file" accept="image/png,image/jpeg,image/webp" data-payment-qr /></div>
-      ${d.paymentQrData ? `<div class="fld full"><label>QR preview — ${esc(d.paymentQrName||'Uploaded QR')}</label><img src="${d.paymentQrData}" alt="Hospital UPI QR code preview" style="max-width:220px;max-height:220px;object-fit:contain;border:1px solid #ddd;border-radius:12px;padding:8px" /><button type="button" class="abtn ghost sm" data-action="remove-payment-qr">Remove QR</button></div>` : ''}
-    </div>
-    <div class="notice warn" style="margin-top:12px"><span>Use the UPI ID or QR linked to the hospital's bank account. Direct UPI payments are real transfers, but this app cannot automatically verify payment unless a payment provider/bank verification integration is configured.</span></div>
+    <div class="section-label">Donation Payment Setup</div>
+    <div class="notice info" style="margin-bottom:16px"><span>Donations are processed through the ICF Cashfree merchant account. Hospital UPI IDs and QR uploads are not required. Donors can choose UPI and other payment methods on the secure Cashfree checkout.</span></div>
+    <div class="notice warn"><span>Payments settle to the merchant account configured in Cashfree. Confirm the platform's fundraising and settlement arrangement before accepting real donations.</span></div>
     <div class="modal-actions" style="justify-content:space-between">
       <button class="abtn ghost" data-action="wizard-back">Back</button>
       <button class="abtn primary" data-action="wizard-next">Continue to Review</button>
@@ -740,7 +735,7 @@
         <div class="rr"><dt>Doctor Reg.</dt><dd>${esc(d.doctorRegNo)||'—'}</dd></div>
       </dl></div>
       <div class="review-block"><h4>Uploaded Documents</h4>${docList}</div>
-      <div class="review-block"><h4>Payment Details</h4><dl><div class="rr"><dt>Hospital UPI ID</dt><dd>${esc(d.paymentUpiId)||'Not provided'}</dd></div><div class="rr"><dt>QR Code</dt><dd>${d.paymentQrData?'Uploaded':'Not uploaded'}</dd></div></dl>${d.paymentQrData?`<img src="${d.paymentQrData}" alt="Hospital UPI QR" style="max-width:150px;max-height:150px;object-fit:contain" />`:''}</div>
+      <div class="review-block"><h4>Donation Payments</h4><p>Secure Cashfree checkout. Donors choose UPI or another available payment method.</p></div>
     </div>
     <div class="notice info" style="margin-top:16px">${ICON.shield}<span>On submission this case will be sent to the <b>Health Authority</b> for verification. Status will become <b>Pending Health Authority Verification</b>.</span></div>
     <div class="modal-actions" style="justify-content:space-between">
@@ -909,51 +904,60 @@
 
   function donateFlow(id){
     const c = getCase(id); if (!c) return;
-    const upi = String(c.paymentUpiId || '').trim();
-    const qr = c.paymentQrData || '';
-    const payReady = Boolean(upi || qr);
     openModal(`
       <h3>Support ${esc(c.patientName)}</h3>
       <div class="m-sub">${esc(c.treatment)} · ${esc(c.hospitalName)} · ${esc(c.id)}</div>
       ${progress(c)}
-      <div class="fld" style="margin-top:16px"><label>Donation Amount (₹)</label><input id="donateAmt" type="number" min="1" step="0.01" placeholder="e.g. 5000" /></div>
+      <div class="fld" style="margin-top:16px"><label>Donation Amount (₹)</label><input id="donateAmt" type="number" min="1" max="1000000" step="0.01" placeholder="e.g. 5000" /></div>
       <div class="filter-row" style="margin-top:12px">${[1000,5000,10000,25000].map(a=>`<button class="chip" data-action="donate-quick" data-amt="${a}">₹${a.toLocaleString('en-IN')}</button>`).join('')}</div>
-      ${upi ? `<div class="notice info" style="margin-top:14px"><span><b>Hospital UPI ID:</b> ${esc(upi)}</span></div>` : ''}
-      ${qr ? `<div style="text-align:center;margin:12px 0"><img src="${qr}" alt="Hospital payment QR code" style="max-width:220px;max-height:220px;object-fit:contain;border:1px solid #ddd;border-radius:12px;padding:8px"/><div class="u-hint">Scan with your UPI app</div></div>` : ''}
-      ${!payReady ? `<div class="notice warn"><span>This hospital has not added payment details yet. Please contact the hospital before donating.</span></div>` : `
-        <div class="notice warn" style="margin-top:12px"><span>Pay the hospital directly. After paying, enter the UPI transaction reference/UTR below. The hospital or health authority must verify the transaction before the donation total changes.</span></div>
-        ${upi ? `<div class="modal-actions"><button class="abtn primary" data-action="open-upi-pay" data-id="${esc(c.id)}">Open UPI App</button></div>` : ''}
-        <div class="fld" style="margin-top:12px"><label>UPI Transaction Reference / UTR</label><input id="donateRef" maxlength="120" autocomplete="off" placeholder="Enter transaction ID after payment" /></div>
-      `}
-      <div class="modal-actions"><button class="abtn ghost" data-action="close-modal">Cancel</button>
-      ${payReady ? `<button class="abtn ok" data-action="submit-donation" data-id="${esc(c.id)}">Submit for Verification</button>` : ''}</div>
+      <div class="notice info" style="margin-top:14px"><span>Secure payment powered by Cashfree. Tap Pay Now to open the payment checkout and choose UPI or another available payment method. You do not need to enter a transaction ID.</span></div>
+      <div class="modal-actions"><button class="abtn ghost" data-action="close-modal">Cancel</button><button class="abtn ok" data-action="cashfree-pay" data-id="${esc(c.id)}">Pay Now</button></div>
     `);
   }
 
-  function openUpiPayment(id){
-    const c = getCase(id); if (!c) return;
-    const amt = Number(($('#donateAmt')||{}).value || 0);
-    if (!Number.isFinite(amt) || amt < 1){ toast('Invalid amount','Enter the amount you want to donate.','bad'); return; }
-    const upi = String(c.paymentUpiId || '').trim();
-    if (!upi){ toast('UPI ID unavailable','Scan the hospital QR code using your UPI app.','bad'); return; }
-    const params = new URLSearchParams({pa:upi, pn:c.hospitalName || 'Hospital', am:amt.toFixed(2), cu:'INR', tn:`LifeLink ${c.id} - ${c.patientName}`});
-    // The browser may open a UPI app on supported devices. This is not proof
-    // of payment; the donor must return and submit the transaction reference.
-    window.location.href = `upi://pay?${params.toString()}`;
+  async function cashfreePay(id){
+    const amount = Number(($('#donateAmt')||{}).value || 0);
+    if (!Number.isFinite(amount) || amount < 1 || amount > 1000000) {
+      toast('Invalid amount','Enter a donation amount from ₹1 to ₹10,00,000.','bad'); return;
+    }
+    try {
+      const result = await api('/donations/create-order', {
+        method:'POST', body:JSON.stringify({caseId:id, amount})
+      });
+      const d = result.data;
+      if (!window.Cashfree) {
+        await new Promise((resolve,reject)=>{
+          const script=document.createElement('script');
+          script.src='https://sdk.cashfree.com/js/v3/cashfree.js';
+          script.onload=resolve; script.onerror=()=>reject(new Error('Could not load Cashfree checkout. Check your internet connection.'));
+          document.head.appendChild(script);
+        });
+      }
+      const cashfree = window.Cashfree({ mode: d.environment === 'production' ? 'production' : 'sandbox' });
+      closeModal();
+      await cashfree.checkout({ paymentSessionId:d.paymentSessionId, redirectTarget:'_self' });
+    } catch(err) {
+      toast('Payment could not start', err.message, 'bad');
+    }
   }
 
-  async function submitDonation(id){
-    const amount = Number(($('#donateAmt')||{}).value || 0);
-    const paymentRef = String(($('#donateRef')||{}).value || '').trim();
-    if (!Number.isFinite(amount) || amount <= 0) { toast('Invalid amount','Enter a valid donation amount.','bad'); return; }
-    if (paymentRef.length < 6) { toast('Transaction reference required','Enter the UPI transaction reference/UTR after completing payment.','bad'); return; }
+  async function handleCashfreeReturn(){
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('payment_order_id');
+    if (!orderId) return;
+    params.delete('payment_order_id');
+    const cleanUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash;
+    window.history.replaceState({}, document.title, cleanUrl);
     try {
-      const result = await api('/donations', { method:'POST', body:JSON.stringify({caseId:id, amount, paymentRef}) });
-      closeModal();
+      const result = await api(`/donations/status/${encodeURIComponent(orderId)}`);
       await loadRoleData();
-      toast('Submitted for verification', result.data.message || 'The hospital must verify the transaction. The donation total has not changed yet.', 'info');
-    } catch (err) {
-      toast('Submission failed', err.message, 'bad');
+      if (result.data.status === 'SUCCESS') {
+        toast('Donation successful','Cashfree confirmed your payment. Thank you for supporting this child.','ok');
+      } else {
+        toast('Payment status pending',result.data.message || 'Payment is not confirmed yet. Please check your donation history shortly.','info');
+      }
+    } catch(err) {
+      toast('Could not confirm payment',err.message,'bad');
     }
   }
 
@@ -1263,8 +1267,7 @@
       if (a==='view'){ viewCase(id); return; }
       if (a==='donate'){ donateFlow(id); return; }
       if (a==='donate-quick'){ const inp=$('#donateAmt'); if(inp) inp.value=act.dataset.amt; return; }
-      if (a==='open-upi-pay'){ openUpiPayment(id); return; }
-      if (a==='submit-donation'){ submitDonation(id); return; }
+      if (a==='cashfree-pay'){ cashfreePay(id); return; }
       if (a==='verify-donation'){ reviewDonation(id, act.dataset.caseId, 'verify'); return; }
       if (a==='reject-donation'){ reviewDonation(id, act.dataset.caseId, 'reject'); return; }
       if (a==='toggle-save'){
@@ -1398,11 +1401,6 @@
       const miss = req.filter(k=>!String(d[k]).trim());
       if (miss.length){ toast('Missing fields','Please complete: '+miss.join(', '),'bad'); return false; }
     }
-    if (state.wizard.step===3){
-      const d = state.wizard.data;
-      if (d.paymentUpiId && !/^[\w.-]{2,256}@[\w.-]{2,64}$/.test(d.paymentUpiId.trim())) { toast('Invalid UPI ID','Enter a valid UPI ID such as hospital@bank.','bad'); return false; }
-      if (!d.paymentUpiId && !d.paymentQrData) { toast('Payment details required','Enter the hospital UPI ID or upload its QR code.','bad'); return false; }
-    }
     if (state.wizard.step===2){
       if (!state.wizard.docs.length){ toast('Documents required','Upload at least one document.','bad'); return false; }
     }
@@ -1432,6 +1430,7 @@
         enter(state.role);
         state.page = state.page || 'dashboard';
         render();
+        await handleCashfreeReturn();
       } catch (_) {
         localStorage.removeItem('lifelink_token');
         state = defaultState();
